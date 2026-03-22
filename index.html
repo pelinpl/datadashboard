@@ -473,14 +473,43 @@ const STORAGE_INDEX_KEY = 'bip_datasets_index';
 let _pendingSaveData = null;
 let _pendingSaveName = '';
 
+// ── Storage: prefer window.storage (Claude artifacts), fall back to localStorage ──
+const _useWindowStorage = typeof window.storage !== 'undefined';
+
 async function storageGet(key) {
-  try { const r = await window.storage.get(key); return r ? JSON.parse(r.value) : null; } catch(e) { return null; }
+  try {
+    if (_useWindowStorage) {
+      const r = await window.storage.get(key);
+      return r ? JSON.parse(r.value) : null;
+    } else {
+      const v = localStorage.getItem(key);
+      return v ? JSON.parse(v) : null;
+    }
+  } catch(e) { return null; }
 }
 async function storageSet(key, value) {
-  try { await window.storage.set(key, JSON.stringify(value)); return true; } catch(e) { return false; }
+  try {
+    const str = JSON.stringify(value);
+    if (_useWindowStorage) {
+      await window.storage.set(key, str);
+    } else {
+      localStorage.setItem(key, str);
+    }
+    return true;
+  } catch(e) {
+    console.warn('Storage error:', e);
+    return false;
+  }
 }
 async function storageDelete(key) {
-  try { await window.storage.delete(key); return true; } catch(e) { return false; }
+  try {
+    if (_useWindowStorage) {
+      await window.storage.delete(key);
+    } else {
+      localStorage.removeItem(key);
+    }
+    return true;
+  } catch(e) { return false; }
 }
 
 async function loadStorageIndex() {
