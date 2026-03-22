@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BiP Industry Analytics</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js">
 // ── CORE KPI TREND CHART ──────────────────────────────────────────────────────
 let coreChartInstance = null;
@@ -75,6 +76,7 @@ function renderCoreChart() {
   `;
 }
 </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -428,9 +430,106 @@ function loadSampleData() {
 function handleFile(file) {
   if (!file) return;
   const ext = file.name.split('.').pop().toLowerCase();
-  if (['xlsx','xls','csv'].includes(ext)) {
-    showPreview(EMBEDDED_DATA, file.name);
-  } else { alert('Please upload XLSX or CSV.'); }
+  if (!['xlsx','xls','csv'].includes(ext)) { alert('Please upload XLSX or CSV.'); return; }
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      let parsedData;
+      if (ext === 'csv') {
+        parsedData = parseCSVData(e.target.result, file.name);
+      } else {
+        parsedData = parseXLSXData(e.target.result, file.name);
+      }
+      if (parsedData) {
+        showPreview(parsedData, file.name);
+      } else {
+        alert('Could not find valid KPI data in the file.\nEach sheet should have a header row with quarter columns (Q8, Q12, etc.) and company rows.');
+      }
+    } catch(err) {
+      console.error('Parse error:', err);
+      alert('Error reading file: ' + err.message);
+    }
+  };
+  if (ext === 'csv') {
+    reader.readAsText(file);
+  } else {
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+function parseXLSXData(arrayBuffer, filename) {
+  // Load SheetJS dynamically if not already loaded
+  if (typeof XLSX === 'undefined') {
+    throw new Error('SheetJS not loaded. Please try again.');
+  }
+  const wb = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
+
+  // Expect one sheet per KPI — sheet name = kpi key
+  // Each sheet: row 1 = header (Company, Q8, Q12, ...), rows 2+ = data
+  const companies = {};
+  const kpi_labels = {};
+  const kpi_units = {};
+  const quartersSet = new Set();
+
+  wb.SheetNames.forEach(sheetName => {
+    const ws = wb.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+    if (!rows || rows.length < 2) return;
+
+    const header = rows[0].map(h => h == null ? '' : String(h).trim());
+    const kpiKey = sheetName.trim().toLowerCase().replace(/\s+/g, '_');
+    kpi_labels[kpiKey] = sheetName.trim();
+
+    // Detect quarter columns (anything that looks like Q+number)
+    const qCols = [];
+    header.forEach((h, i) => {
+      if (/^Q\d+$/i.test(h)) { qCols.push({ q: h.toUpperCase(), i }); quartersSet.add(h.toUpperCase()); }
+    });
+
+    // Find company column (first column, or column named 'Company'/'Name' etc)
+    const companyCol = 0;
+
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      const companyName = row[companyCol] == null ? null : String(row[companyCol]).trim();
+      if (!companyName) continue;
+      if (!companies[companyName]) companies[companyName] = {};
+      if (!companies[companyName][kpiKey]) companies[companyName][kpiKey] = {};
+      qCols.forEach(({ q, i }) => {
+        const v = row[i];
+        companies[companyName][kpiKey][q] = v == null ? null : parseFloat(v);
+      });
+    }
+  });
+
+  if (Object.keys(companies).length === 0) return null;
+
+  const quarters = Array.from(quartersSet).sort((a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1)));
+
+  // Use EMBEDDED_DATA's kpi_labels/units/dimensions as fallback where available
+  Object.keys(kpi_labels).forEach(k => {
+    if (EMBEDDED_DATA.kpi_labels[k]) kpi_labels[k] = EMBEDDED_DATA.kpi_labels[k];
+    if (EMBEDDED_DATA.kpi_units[k]) kpi_units[k] = EMBEDDED_DATA.kpi_units[k];
+  });
+
+  // Build dimensions: match keys to EMBEDDED_DATA dimensions, put unmatched in 'Other'
+  const dimensions = {};
+  const assignedKPIs = new Set();
+  Object.entries(EMBEDDED_DATA.dimensions).forEach(([dim, kpis]) => {
+    const matched = kpis.filter(k => kpi_labels[k]);
+    if (matched.length) { dimensions[dim] = matched; matched.forEach(k => assignedKPIs.add(k)); }
+  });
+  const unmatched = Object.keys(kpi_labels).filter(k => !assignedKPIs.has(k));
+  if (unmatched.length) dimensions['Other'] = unmatched;
+
+  return { kpi_labels, kpi_units, dimensions, quarters, companies };
+}
+
+function parseCSVData(text, filename) {
+  // Simple CSV: rows = companies, cols = Company, Q8, Q12, ... (single KPI)
+  // Not the multi-sheet format, so fall back to embedded
+  return null;
 }
 
 function showPreview(data, filename) {
@@ -566,6 +665,7 @@ function selectQ(q) {
     const kpiUnit  = appData.kpi_units[ratingKPI] || '';
     const kpiSpan  = document.getElementById('company-kpi-value');
     if (kpiSpan) kpiSpan.textContent = kpiVal != null ? `${kpiLabel}: ${fmtVal(kpiVal, ratingKPI)} ${kpiUnit}` : '';
+    renderCoreChart();
     buildDimTabs(selectedCompany);
     renderActiveDim();
   }
