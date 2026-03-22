@@ -111,6 +111,28 @@ body { display: flex; }
 .upload-formats { margin-top: 8px; font-size: 10px; color: rgba(255,255,255,0.3); text-align: center; }
 .upload-status { margin-top: 10px; font-size: 11px; color: #6ee7b7; text-align: center; display: none; }
 
+/* ── SAVED DATASETS ── */
+.saved-section { padding: 12px 16px; border-top: 1px solid rgba(255,255,255,0.08); }
+.saved-label { font-size: 10px; font-weight: 600; letter-spacing: 0.12em; color: rgba(255,255,255,0.4); text-transform: uppercase; margin-bottom: 8px; }
+.saved-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 6px; background: rgba(255,255,255,0.05); margin-bottom: 4px; cursor: pointer; transition: background 0.15s; }
+.saved-item:hover { background: rgba(255,255,255,0.1); }
+.saved-item-name { font-size: 11px; color: rgba(255,255,255,0.75); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+.saved-item-meta { font-size: 10px; color: rgba(255,255,255,0.3); margin-top: 1px; }
+.saved-item-del { font-size: 14px; color: rgba(255,255,255,0.25); cursor: pointer; padding: 2px 4px; flex-shrink: 0; line-height: 1; }
+.saved-item-del:hover { color: #f87171; }
+.saved-empty { font-size: 11px; color: rgba(255,255,255,0.25); text-align: center; padding: 8px 0; }
+
+/* ── SAVE MODAL ── */
+#save-modal { display:none; position:fixed; inset:0; z-index:2000; background:rgba(10,20,40,0.8); backdrop-filter:blur(4px); align-items:center; justify-content:center; }
+#save-modal.open { display:flex; }
+.save-modal-box { background:#fff; border-radius:14px; padding:32px; width:min(420px,90vw); box-shadow:0 24px 64px rgba(0,0,0,0.25); }
+.save-modal-box h3 { font-size:16px; font-weight:700; color:#1a2a3a; margin-bottom:6px; }
+.save-modal-box p { font-size:13px; color:#64748b; margin-bottom:20px; line-height:1.5; }
+.save-modal-name { width:100%; padding:9px 12px; border:1px solid #e2e8f0; border-radius:8px; font-family:Inter,sans-serif; font-size:13px; color:#1a2a3a; margin-bottom:16px; box-sizing:border-box; outline:none; }
+.save-modal-name:focus { border-color:#2563eb; }
+.save-modal-actions { display:flex; gap:10px; justify-content:flex-end; }
+
+
 /* ── PREVIEW ── */
 #preview-screen { display: none; background: #f0f4f8; min-height: 100vh; padding: 32px; }
 .preview-topbar { background: #fff; border-radius: 12px; padding: 20px 28px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
@@ -286,6 +308,10 @@ select:focus { border-color: #2563eb; }
     </button>
     <div class="upload-status" id="upload-status">✓ Data loaded</div>
   </div>
+  <div class="saved-section" id="saved-section" style="display:none;">
+    <div class="saved-label">Saved Datasets</div>
+    <div id="saved-list"></div>
+  </div>
 </div>
 
 <!-- CONTENT AREA -->
@@ -428,6 +454,94 @@ uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag
 uploadZone.addEventListener('drop', e => { e.preventDefault(); uploadZone.classList.remove('drag'); handleFile(e.dataTransfer.files[0]); });
 document.getElementById('file-input').addEventListener('change', e => handleFile(e.target.files[0]));
 
+// ── PERSISTENT STORAGE ───────────────────────────────────────────────────────
+const STORAGE_INDEX_KEY = 'bip_datasets_index';
+let _pendingSaveData = null;
+let _pendingSaveName = '';
+
+async function storageGet(key) {
+  try { const r = await window.storage.get(key); return r ? JSON.parse(r.value) : null; } catch(e) { return null; }
+}
+async function storageSet(key, value) {
+  try { await window.storage.set(key, JSON.stringify(value)); return true; } catch(e) { return false; }
+}
+async function storageDelete(key) {
+  try { await window.storage.delete(key); return true; } catch(e) { return false; }
+}
+
+async function loadStorageIndex() {
+  return (await storageGet(STORAGE_INDEX_KEY)) || [];
+}
+async function saveStorageIndex(index) {
+  await storageSet(STORAGE_INDEX_KEY, index);
+}
+
+async function renderSavedList() {
+  const index = await loadStorageIndex();
+  const section = document.getElementById('saved-section');
+  const list = document.getElementById('saved-list');
+  if (!index.length) {
+    section.style.display = 'none';
+    list.innerHTML = '';
+    return;
+  }
+  section.style.display = 'block';
+  list.innerHTML = index.map(item => `
+    <div class="saved-item" onclick="loadSavedDataset('${item.key}','${item.name.replace(/'/g,"\\'")}')">
+      <div style="overflow:hidden;">
+        <div class="saved-item-name" title="${item.name}">${item.name}</div>
+        <div class="saved-item-meta">${item.companies} cos · ${item.quarters} · ${item.date}</div>
+      </div>
+      <span class="saved-item-del" title="Delete" onclick="event.stopPropagation();deleteSavedDataset('${item.key}','${item.name.replace(/'/g,"\\'")}')">×</span>
+    </div>`).join('');
+}
+
+async function loadSavedDataset(key, name) {
+  const data = await storageGet(key);
+  if (!data) { alert('Dataset not found. It may have been cleared.'); await renderSavedList(); return; }
+  showPreview(data, name, true);
+}
+
+async function deleteSavedDataset(key, name) {
+  if (!confirm(`Delete "${name}"?`)) return;
+  await storageDelete(key);
+  const index = (await loadStorageIndex()).filter(i => i.key !== key);
+  await saveStorageIndex(index);
+  await renderSavedList();
+}
+
+function openSaveModal(data, suggestedName) {
+  _pendingSaveData = data;
+  document.getElementById('save-modal-name').value = suggestedName.replace(/\.(xlsx?|csv)$/i,'');
+  document.getElementById('save-modal').classList.add('open');
+  setTimeout(() => document.getElementById('save-modal-name').select(), 50);
+}
+
+async function closeSaveModal(doSave) {
+  document.getElementById('save-modal').classList.remove('open');
+  if (!doSave || !_pendingSaveData) { _pendingSaveData = null; return; }
+
+  const name = document.getElementById('save-modal-name').value.trim() || 'Dataset';
+  const key = 'bip_data_' + Date.now();
+  const ok = await storageSet(key, _pendingSaveData);
+  if (!ok) { alert('Storage full or unavailable. Dataset not saved.'); _pendingSaveData = null; return; }
+
+  const index = await loadStorageIndex();
+  const qs = _pendingSaveData.quarters;
+  index.unshift({
+    key, name,
+    companies: Object.keys(_pendingSaveData.companies).length,
+    quarters: qs[0] + '–' + qs[qs.length-1],
+    date: new Date().toLocaleDateString()
+  });
+  await saveStorageIndex(index);
+  await renderSavedList();
+  _pendingSaveData = null;
+}
+
+// Init saved list on load
+document.addEventListener('DOMContentLoaded', () => renderSavedList());
+
 function loadSampleData() {
   showPreview(EMBEDDED_DATA, 'BiP-Last-KPIs-2025.xlsx');
 }
@@ -537,7 +651,7 @@ function parseCSVData(text, filename) {
   return null;
 }
 
-function showPreview(data, filename) {
+function showPreview(data, filename, fromStorage = false) {
   // Reset all state for fresh analysis
   appData = data;
   selectedCompany = null;
@@ -616,6 +730,12 @@ function showPreview(data, filename) {
   // Activate preview nav tab
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('nav-preview').classList.add('active');
+
+  // Offer to save — only for real uploaded files (not sample data, not loading from storage)
+  const isSample = filename === 'BiP-Last-KPIs-2025.xlsx' && data === EMBEDDED_DATA;
+  if (!fromStorage && !isSample) {
+    setTimeout(() => openSaveModal(data, filename), 400);
+  }
 }
 
 function switchPreviewKPI(kpi) {
@@ -1333,5 +1453,18 @@ function el(tag,cls) { const e=document.createElement(tag); e.className=cls; ret
   </div>
 </div>
 </div><!-- /content-area -->
+
+<!-- SAVE MODAL -->
+<div id="save-modal">
+  <div class="save-modal-box">
+    <h3>💾 Save this dataset?</h3>
+    <p>Save this dataset so you can load it quickly next time, without re-uploading the file.</p>
+    <input class="save-modal-name" id="save-modal-name" type="text" placeholder="Dataset name…" maxlength="60">
+    <div class="save-modal-actions">
+      <button class="btn btn-outline" onclick="closeSaveModal(false)">Skip</button>
+      <button class="btn btn-primary" onclick="closeSaveModal(true)">Save</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
