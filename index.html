@@ -533,7 +533,18 @@ function parseCSVData(text, filename) {
 }
 
 function showPreview(data, filename) {
+  // Reset all state for fresh analysis
   appData = data;
+  selectedCompany = null;
+  selectedPeers = [];
+  selectedQ = data.quarters[data.quarters.length - 1];
+  currentRatings = {};
+  ratingKPI = 'value_added';
+  activeDim = null;
+  Object.values(chartInstances).forEach(c => { try { c.destroy(); } catch(e){} });
+  chartInstances = {};
+  if (coreChartInstance) { try { coreChartInstance.destroy(); } catch(e){} coreChartInstance = null; }
+  if (modalChartInstance) { try { modalChartInstance.destroy(); } catch(e){} modalChartInstance = null; }
   const cos  = Object.keys(data.companies).sort();
   const kpis = Object.keys(data.kpi_labels);
   const qs   = data.quarters;
