@@ -171,9 +171,7 @@ select:focus { border-color: #2563eb; }
 .pill-BBB { background: #fff7ed; color: #9a3412; }
 .pill-BB  { background: #fee2e2; color: #991b1b; }
 
-.q-tabs { display: flex; gap: 4px; }
-.q-btn { font-size: 12px; padding: 5px 12px; border-radius: 6px; background: #f1f5f9; border: 1px solid #e2e8f0; color: #64748b; cursor: pointer; font-weight: 500; transition: all 0.12s; font-family: 'Inter', sans-serif; }
-.q-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+
 
 /* PEER PANEL */
 .peer-panel { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 16px 32px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
@@ -340,7 +338,7 @@ select:focus { border-color: #2563eb; }
       </div>
       <div style="margin-left:auto;">
         <div class="company-select-label" style="margin-bottom:6px;">Quarter</div>
-        <div class="q-tabs" id="q-tabs"></div>
+        <select id="q-select" onchange="selectQ(this.value)" style="font-size:13px;font-weight:600;padding:6px 12px;"></select>
       </div>
     </div>
 
@@ -553,15 +551,14 @@ function setOptions(id, opts, selected) {
 }
 
 function buildQTabs() {
-  const tabs = document.getElementById('q-tabs');
-  tabs.innerHTML = appData.quarters.map(q =>
-    `<button class="q-btn ${q===selectedQ?'active':''}" onclick="selectQ('${q}')">${q}</button>`
+  const sel = document.getElementById('q-select');
+  sel.innerHTML = appData.quarters.map(q =>
+    `<option value="${q}" ${q===selectedQ?'selected':''}>${q}</option>`
   ).join('');
 }
 
 function selectQ(q) {
   selectedQ = q;
-  buildQTabs();
   if (selectedCompany) {
     // Refresh KPI value display for new quarter
     const kpiVal = appData.companies[selectedCompany]?.[ratingKPI]?.[selectedQ];
