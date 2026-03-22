@@ -335,6 +335,7 @@ select:focus { border-color: #2563eb; }
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <select id="company-detail-select" onchange="loadCompany(this.value)" style="font-size:15px;font-weight:600;padding:6px 12px;"></select>
           <span id="company-rating-pill" class="company-rating-pill"></span>
+          <span id="company-kpi-value" style="font-size:12px;color:#64748b;font-weight:500;margin-left:8px;"></span>
         </div>
       </div>
       <div style="margin-left:auto;">
@@ -561,7 +562,16 @@ function buildQTabs() {
 function selectQ(q) {
   selectedQ = q;
   buildQTabs();
-  if (selectedCompany) renderActiveDim();
+  if (selectedCompany) {
+    // Refresh KPI value display for new quarter
+    const kpiVal = appData.companies[selectedCompany]?.[ratingKPI]?.[selectedQ];
+    const kpiLabel = appData.kpi_labels[ratingKPI] || ratingKPI;
+    const kpiUnit  = appData.kpi_units[ratingKPI] || '';
+    const kpiSpan  = document.getElementById('company-kpi-value');
+    if (kpiSpan) kpiSpan.textContent = kpiVal != null ? `${kpiLabel}: ${fmtVal(kpiVal, ratingKPI)} ${kpiUnit}` : '';
+    buildDimTabs(selectedCompany);
+    renderActiveDim();
+  }
 }
 
 // ── STATS ROW ────────────────────────────────────────────────────────────────
@@ -629,6 +639,17 @@ function loadCompany(name) {
   pill.textContent = rating;
   pill.className = `company-rating-pill pill-${rating}`;
 
+  // Show rating KPI value next to pill
+  const kpiVal = appData.companies[name]?.[ratingKPI]?.[selectedQ];
+  const kpiLabel = appData.kpi_labels[ratingKPI] || ratingKPI;
+  const kpiUnit  = appData.kpi_units[ratingKPI] || '';
+  const kpiSpan  = document.getElementById('company-kpi-value');
+  if (kpiSpan) {
+    kpiSpan.textContent = kpiVal != null
+      ? `${kpiLabel}: ${fmtVal(kpiVal, ratingKPI)} ${kpiUnit}`
+      : '';
+  }
+
   if (selectedPeers.length === 0) {
     // Sort all companies by rating KPI desc (or asc if lower-is-better), same tier first
     const lower = LOWER_IS_BETTER.has(ratingKPI);
@@ -642,7 +663,7 @@ function loadCompany(name) {
     // Same tier first, then fill with others if needed
     const sameTier = allSorted.filter(c => currentRatings[c] === rating);
     const others   = allSorted.filter(c => currentRatings[c] !== rating);
-    selectedPeers  = [...sameTier, ...others].slice(0, 10);
+    selectedPeers  = [...sameTier, ...others].slice(0, 10);  // default 10
   }
 
   renderPeerPanel(name);
@@ -658,7 +679,7 @@ function renderPeerPanel(name) {
   document.getElementById('peer-chips').innerHTML = selectedPeers.length
     ? selectedPeers.map(p => `<div class="peer-chip-item">${p}<span class="rm" onclick="removePeer('${p}')">×</span></div>`).join('')
     : '<span style="font-size:11px;color:#94a3b8;">No peers — add from the dropdown</span>';
-  document.getElementById('peer-count-label').textContent = `${selectedPeers.length}/10`;
+  document.getElementById('peer-count-label').textContent = `${selectedPeers.length}/20`;
   const lower2 = LOWER_IS_BETTER.has(ratingKPI);
   const allCos = Object.keys(appData.companies)
     .filter(c => c !== name && !selectedPeers.includes(c))
@@ -672,7 +693,7 @@ function renderPeerPanel(name) {
 
 function addPeer() {
   const v = document.getElementById('peer-add-select').value;
-  if (v && !selectedPeers.includes(v) && selectedPeers.length < 10) {
+  if (v && !selectedPeers.includes(v) && selectedPeers.length < 20) {
     selectedPeers.push(v);
     renderPeerPanel(selectedCompany);
     renderCoreChart();
@@ -747,10 +768,11 @@ function detectAnomalies(name) {
   const co = appData.companies[name];
   const qs = appData.quarters;
 
-  // Only compare latest vs previous quarter
-  const latestQ = qs[qs.length - 1];
-  const prevQ   = qs[qs.length - 2];
-  if (!latestQ || !prevQ) return [];
+  // Compare selectedQ vs the quarter immediately before it
+  const qIdx  = qs.indexOf(selectedQ);
+  if (qIdx < 1) return [];  // no previous quarter to compare
+  const latestQ = selectedQ;
+  const prevQ   = qs[qIdx - 1];
 
   for (const kpi of Object.keys(appData.kpi_labels)) {
     const kd = co[kpi]; if (!kd) continue;
@@ -775,7 +797,7 @@ function detectAnomalies(name) {
       }
     }
 
-    // ── 2. Peer deviation >20% in bad direction (based on latest Q) ──
+    // ── 2. Peer deviation >20% in bad direction (based on selectedQ) ──
     if (selectedPeers.length > 0 && dir !== 'none') {
       const pv = selectedPeers.map(p => appData.companies[p]?.[kpi]?.[latestQ]).filter(v => v != null && !isNaN(v));
       if (pv.length) {
@@ -833,8 +855,8 @@ function renderActiveDim() {
   // Alert box for this dimension
   if(dimAlerts.length>0) {
     html += `<div class="alert-box">
-      <div class="alert-box-title">⚠️ 智能报警 (Anomaly Alert)</div>
-      ${dimAlerts.slice(0,5).map(a=>`<div class="alert-box-item">• <strong>${selectedCompany}</strong> 的 <strong>${a.label}</strong> — ${a.msg}</div>`).join('')}
+      <div class="alert-box-title">⚠ Smart Anomaly Alert</div>
+      ${dimAlerts.slice(0,5).map(a=>`<div class="alert-box-item">• <strong>${selectedCompany}</strong> · <strong>${a.label}</strong> — ${a.msg}</div>`).join('')}
     </div>`;
   }
 
