@@ -953,14 +953,23 @@ function renderRatingWall() {
     { key:'BBB', label:'Developing',  pct:[0.60,0.80],desc:'60% – 80%' },
     { key:'BB',  label:'At Risk',     pct:[0.80,1.0], desc:'Bottom 20%' },
   ];
-  currentRatings = {};
-  tiers.forEach(t => {
-    const s = Math.floor(t.pct[0]*n), e = Math.ceil(t.pct[1]*n);
-    scored.slice(s,e).forEach(x => currentRatings[x.name] = t.key);
+  // Pre-compute non-overlapping boundaries
+  let cursor = 0;
+  const tierBounds = tiers.map((t, i) => {
+    const s = cursor;
+    const e = i === tiers.length - 1 ? n : Math.round(t.pct[1] * n);
+    cursor = e;
+    return { s, e };
   });
-  document.getElementById('rating-tiers').innerHTML = tiers.map(t => {
-    const s = Math.floor(t.pct[0]*n), e = Math.ceil(t.pct[1]*n);
-    const group = scored.slice(s,e);
+
+  currentRatings = {};
+  tiers.forEach((t, i) => {
+    const { s, e } = tierBounds[i];
+    scored.slice(s, e).forEach(x => currentRatings[x.name] = t.key);
+  });
+  document.getElementById('rating-tiers').innerHTML = tiers.map((t, i) => {
+    const { s, e } = tierBounds[i];
+    const group = scored.slice(s, e);
     const rangeStr = group.length ? `${fmtVal(lower?group[0].val:group[0].val,ratingKPI)} – ${fmtVal(group[group.length-1].val,ratingKPI)} ${appData.kpi_units[ratingKPI]||''}` : '';
     return `<div class="tier-row">
       <div class="tier-badge ${t.key}">${t.key}</div>
