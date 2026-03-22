@@ -535,8 +535,18 @@ const ALL_DIMS = [
   'Operational Efficiency',
   'ESG & Innovation',
   'Organization & HR',
-  'Other'
+  'Other',
+  '__ignore__'
 ];
+const ALL_DIMS_LABELS = {
+  'Market & Growth': 'Market & Growth',
+  'Profitability & Capital': 'Profitability & Capital',
+  'Operational Efficiency': 'Operational Efficiency',
+  'ESG & Innovation': 'ESG & Innovation',
+  'Organization & HR': 'Organization & HR',
+  'Other': 'Other',
+  '__ignore__': '— Ignore (exclude from analysis)'
+};
 
 function openKpiClassifyModal(data, filename) {
   _classifyData = data;
@@ -546,7 +556,7 @@ function openKpiClassifyModal(data, filename) {
   rows.innerHTML = data.unmatched.map(kpi => {
     const label = data.kpi_labels[kpi] || kpi;
     const opts = ALL_DIMS.map(d =>
-      `<option value="${d}" ${d === 'Other' ? 'selected' : ''}>${d}</option>`
+      `<option value="${d}" ${d === 'Other' ? 'selected' : ''}>${ALL_DIMS_LABELS[d]}</option>`
     ).join('');
     return `<div class="classify-kpi-row">
       <div class="classify-kpi-name" title="${kpi}">${label}</div>
@@ -565,9 +575,11 @@ function confirmKpiClassify() {
   selects.forEach(sel => {
     const kpi = sel.dataset.kpi;
     const dim = sel.value;
-    if (dim === 'Other') {
-      if (!_classifyData.dimensions['Other']) _classifyData.dimensions['Other'] = [];
-      _classifyData.dimensions['Other'].push(kpi);
+    if (dim === '__ignore__') {
+      // Remove from kpi_labels so it's fully excluded
+      delete _classifyData.kpi_labels[kpi];
+      delete _classifyData.kpi_units[kpi];
+      Object.values(_classifyData.companies).forEach(c => delete c[kpi]);
     } else {
       if (!_classifyData.dimensions[dim]) _classifyData.dimensions[dim] = [];
       _classifyData.dimensions[dim].push(kpi);
@@ -1091,7 +1103,7 @@ function detectAnomalies(name) {
     const curr = kd[latestQ], prev = kd[prevQ];
     if (curr == null || prev == null || isNaN(curr) || isNaN(prev)) continue;
 
-    const label = appData.kpi_labels[kpi] || kpi;
+    const label = kpiLabel(kpi);
     const dir   = KPI_ALERT_DIR[kpi] || (LOWER_IS_BETTER.has(kpi) ? 'up' : 'down');
 
     // ── 1. Quarter-on-quarter change in bad direction (>5% threshold to avoid noise) ──
@@ -1178,7 +1190,7 @@ function renderActiveDim() {
 
   const grid = document.getElementById('kpi-grid-active');
   kpiList.forEach(kpi => {
-    const label = appData.kpi_labels[kpi]||kpi;
+    const label = kpiLabel(kpi);
     const unit = appData.kpi_units[kpi]||'';
     const coData = appData.companies[selectedCompany]?.[kpi];
     if(!coData) return;
@@ -1251,7 +1263,7 @@ function renderCoreChart() {
   if (!selectedCompany) return;
 
   const kpi = ratingKPI;
-  const label = appData.kpi_labels[kpi] || kpi;
+  const label = kpiLabel(kpi);
   const unit  = appData.kpi_units[kpi] || '';
   const showIndustry = document.getElementById('show-industry-avg').checked;
 
@@ -1500,6 +1512,14 @@ function downloadModalChart() {
 }
 
 // ── UTILS ─────────────────────────────────────────────────────────────────────
+function titleCase(str) {
+  if (!str) return str;
+  return str.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1));
+}
+function kpiLabel(kpi) {
+  return titleCase(appData.kpi_labels[kpi] || kpi);
+}
+
 function fmtVal(v,kpi) {
   if(v==null) return '—';
   if(Math.abs(v)>=100000) return (v/1000).toFixed(0)+'K';
