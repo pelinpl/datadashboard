@@ -132,6 +132,20 @@ body { display: flex; }
 .save-modal-name:focus { border-color:#2563eb; }
 .save-modal-actions { display:flex; gap:10px; justify-content:flex-end; }
 
+/* ── KPI CLASSIFY MODAL ── */
+#kpi-classify-modal { display:none; position:fixed; inset:0; z-index:2100; background:rgba(10,20,40,0.85); backdrop-filter:blur(4px); align-items:center; justify-content:center; }
+#kpi-classify-modal.open { display:flex; }
+.classify-box { background:#fff; border-radius:14px; padding:32px; width:min(560px,92vw); max-height:85vh; overflow-y:auto; box-shadow:0 24px 64px rgba(0,0,0,0.3); }
+.classify-box h3 { font-size:16px; font-weight:700; color:#1a2a3a; margin-bottom:6px; }
+.classify-box .sub { font-size:13px; color:#64748b; margin-bottom:22px; line-height:1.5; }
+.classify-kpi-row { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid #f1f5f9; }
+.classify-kpi-row:last-of-type { border-bottom:none; }
+.classify-kpi-name { font-size:13px; font-weight:600; color:#1a2a3a; min-width:160px; }
+.classify-kpi-select { flex:1; padding:6px 10px; border:1px solid #e2e8f0; border-radius:8px; font-family:Inter,sans-serif; font-size:12px; color:#1a2a3a; background:#fff; cursor:pointer; outline:none; }
+.classify-kpi-select:focus { border-color:#2563eb; }
+.classify-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:22px; }
+
+
 
 /* ── PREVIEW ── */
 #preview-screen { display: none; background: #f0f4f8; min-height: 100vh; padding: 32px; }
@@ -510,6 +524,61 @@ async function deleteSavedDataset(key, name) {
   await renderSavedList();
 }
 
+
+// ── KPI CLASSIFICATION MODAL ─────────────────────────────────────────────────
+let _classifyData = null;
+let _classifyFilename = '';
+
+const ALL_DIMS = [
+  'Market & Growth',
+  'Profitability & Capital',
+  'Operational Efficiency',
+  'ESG & Innovation',
+  'Organization & HR',
+  'Other'
+];
+
+function openKpiClassifyModal(data, filename) {
+  _classifyData = data;
+  _classifyFilename = filename;
+
+  const rows = document.getElementById('classify-kpi-rows');
+  rows.innerHTML = data.unmatched.map(kpi => {
+    const label = data.kpi_labels[kpi] || kpi;
+    const opts = ALL_DIMS.map(d =>
+      `<option value="${d}" ${d === 'Other' ? 'selected' : ''}>${d}</option>`
+    ).join('');
+    return `<div class="classify-kpi-row">
+      <div class="classify-kpi-name" title="${kpi}">${label}</div>
+      <select class="classify-kpi-select" data-kpi="${kpi}">${opts}</select>
+    </div>`;
+  }).join('');
+
+  document.getElementById('kpi-classify-modal').classList.add('open');
+}
+
+function confirmKpiClassify() {
+  if (!_classifyData) return;
+  document.getElementById('kpi-classify-modal').classList.remove('open');
+
+  const selects = document.querySelectorAll('#classify-kpi-rows .classify-kpi-select');
+  selects.forEach(sel => {
+    const kpi = sel.dataset.kpi;
+    const dim = sel.value;
+    if (dim === 'Other') {
+      if (!_classifyData.dimensions['Other']) _classifyData.dimensions['Other'] = [];
+      _classifyData.dimensions['Other'].push(kpi);
+    } else {
+      if (!_classifyData.dimensions[dim]) _classifyData.dimensions[dim] = [];
+      _classifyData.dimensions[dim].push(kpi);
+    }
+  });
+
+  delete _classifyData.unmatched;
+  showPreview(_classifyData, _classifyFilename);
+  _classifyData = null;
+}
+
 function openSaveModal(data, suggestedName) {
   _pendingSaveData = data;
   document.getElementById('save-modal-name').value = suggestedName.replace(/\.(xlsx?|csv)$/i,'');
@@ -561,7 +630,11 @@ function handleFile(file) {
         parsedData = parseXLSXData(e.target.result, file.name);
       }
       if (parsedData) {
-        showPreview(parsedData, file.name);
+        if (parsedData.unmatched && parsedData.unmatched.length > 0) {
+          openKpiClassifyModal(parsedData, file.name);
+        } else {
+          showPreview(parsedData, file.name);
+        }
       } else {
         alert('Could not find valid KPI data in the file.\nEach sheet should have a header row with quarter columns (Q8, Q12, etc.) and company rows.');
       }
@@ -632,7 +705,7 @@ function parseXLSXData(arrayBuffer, filename) {
     if (EMBEDDED_DATA.kpi_units[k]) kpi_units[k] = EMBEDDED_DATA.kpi_units[k];
   });
 
-  // Build dimensions: match keys to EMBEDDED_DATA dimensions, put unmatched in 'Other'
+  // Build dimensions: match keys to EMBEDDED_DATA dimensions
   const dimensions = {};
   const assignedKPIs = new Set();
   Object.entries(EMBEDDED_DATA.dimensions).forEach(([dim, kpis]) => {
@@ -640,9 +713,9 @@ function parseXLSXData(arrayBuffer, filename) {
     if (matched.length) { dimensions[dim] = matched; matched.forEach(k => assignedKPIs.add(k)); }
   });
   const unmatched = Object.keys(kpi_labels).filter(k => !assignedKPIs.has(k));
-  if (unmatched.length) dimensions['Other'] = unmatched;
+  // unmatched will be handled interactively — don't assign to Other yet
 
-  return { kpi_labels, kpi_units, dimensions, quarters, companies };
+  return { kpi_labels, kpi_units, dimensions, quarters, companies, unmatched };
 }
 
 function parseCSVData(text, filename) {
@@ -1453,6 +1526,19 @@ function el(tag,cls) { const e=document.createElement(tag); e.className=cls; ret
   </div>
 </div>
 </div><!-- /content-area -->
+
+
+<!-- KPI CLASSIFY MODAL -->
+<div id="kpi-classify-modal">
+  <div class="classify-box">
+    <h3>🗂 Classify New Indicators</h3>
+    <p class="sub">The following KPIs were not recognised. Please assign each one to a dimension, or leave as <em>Other</em>.</p>
+    <div id="classify-kpi-rows"></div>
+    <div class="classify-actions">
+      <button class="btn btn-primary" onclick="confirmKpiClassify()">Confirm →</button>
+    </div>
+  </div>
+</div>
 
 <!-- SAVE MODAL -->
 <div id="save-modal">
