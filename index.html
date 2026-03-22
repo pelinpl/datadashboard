@@ -383,9 +383,16 @@ select:focus { border-color: #2563eb; }
           <span id="company-kpi-value" style="font-size:12px;color:#64748b;font-weight:500;margin-left:8px;"></span>
         </div>
       </div>
-      <div style="margin-left:auto;">
-        <div class="company-select-label" style="margin-bottom:6px;">Quarter</div>
-        <select id="q-select" onchange="selectQ(this.value)" style="font-size:13px;font-weight:600;padding:6px 12px;"></select>
+      <div style="margin-left:auto;display:flex;align-items:flex-end;gap:8px;">
+        <div>
+          <div class="company-select-label" style="margin-bottom:6px;">From</div>
+          <select id="q-from-select" onchange="selectQRange()" style="font-size:13px;font-weight:600;padding:6px 12px;"></select>
+        </div>
+        <div style="padding-bottom:8px;color:#94a3b8;font-size:13px;">→</div>
+        <div>
+          <div class="company-select-label" style="margin-bottom:6px;">To</div>
+          <select id="q-to-select" onchange="selectQRange()" style="font-size:13px;font-weight:600;padding:6px 12px;"></select>
+        </div>
       </div>
     </div>
 
@@ -455,7 +462,8 @@ const LOWER_IS_BETTER = new Set(['wacc','debt_ratio','days_of_inventory','co2_fl
 let appData = null;
 let selectedCompany = null;
 let selectedPeers = [];
-let selectedQ = 'Q28';
+let selectedQ = 'Q28';  // end quarter (for anomaly detection & KPI badge)
+let selectedQFrom = null;  // start quarter (null = first available)
 let currentRatings = {};
 let ratingKPI = 'value_added';
 let activeDim = null;
@@ -771,6 +779,7 @@ function showPreview(data, filename, fromStorage = false) {
   selectedCompany = null;
   selectedPeers = [];
   selectedQ = data.quarters[data.quarters.length - 1];
+  selectedQFrom = data.quarters[0];
   currentRatings = {};
   ratingKPI = 'value_added';
   activeDim = null;
@@ -879,6 +888,8 @@ function confirmData() {
 
 // ── INIT ─────────────────────────────────────────────────────────────────────
 function initApp() {
+  selectedQ     = appData.quarters[appData.quarters.length - 1];
+  selectedQFrom = appData.quarters[0];
   populateSelects();
   renderStatsRow();
   renderRatingWall();
@@ -900,21 +911,48 @@ function setOptions(id, opts, selected) {
 }
 
 function buildQTabs() {
-  const sel = document.getElementById('q-select');
-  sel.innerHTML = appData.quarters.map(q =>
+  const qs = appData.quarters;
+  const fromSel = document.getElementById('q-from-select');
+  const toSel   = document.getElementById('q-to-select');
+  if (!fromSel || !toSel) return;
+  fromSel.innerHTML = qs.map(q =>
+    `<option value="${q}" ${q===selectedQFrom?'selected':''}>${q}</option>`
+  ).join('');
+  toSel.innerHTML = qs.map(q =>
     `<option value="${q}" ${q===selectedQ?'selected':''}>${q}</option>`
   ).join('');
 }
 
-function selectQ(q) {
-  selectedQ = q;
+function selectQRange() {
+  const qs = appData.quarters;
+  const fromVal = document.getElementById('q-from-select').value;
+  const toVal   = document.getElementById('q-to-select').value;
+  const fromIdx = qs.indexOf(fromVal);
+  const toIdx   = qs.indexOf(toVal);
+
+  // Enforce from <= to
+  if (fromIdx > toIdx) {
+    // whichever changed last: snap the other
+    if (selectedQFrom !== fromVal) {
+      selectedQFrom = fromVal;
+      selectedQ = fromVal;
+      document.getElementById('q-to-select').value = fromVal;
+    } else {
+      selectedQ = toVal;
+      selectedQFrom = toVal;
+      document.getElementById('q-from-select').value = toVal;
+    }
+  } else {
+    selectedQFrom = fromVal;
+    selectedQ = toVal;
+  }
+
   if (selectedCompany) {
-    // Refresh KPI value display for new quarter
     const kpiVal = appData.companies[selectedCompany]?.[ratingKPI]?.[selectedQ];
-    const kpiLabel = appData.kpi_labels[ratingKPI] || ratingKPI;
-    const kpiUnit  = appData.kpi_units[ratingKPI] || '';
-    const kpiSpan  = document.getElementById('company-kpi-value');
-    if (kpiSpan) kpiSpan.textContent = kpiVal != null ? `${kpiLabel}: ${fmtVal(kpiVal, ratingKPI)} ${kpiUnit}` : '';
+    const kLabel = appData.kpi_labels[ratingKPI] || ratingKPI;
+    const kUnit  = appData.kpi_units[ratingKPI] || '';
+    const kpiSpan = document.getElementById('company-kpi-value');
+    if (kpiSpan) kpiSpan.textContent = kpiVal != null ? `${kLabel}: ${fmtVal(kpiVal, ratingKPI)} ${kUnit}` : '';
     renderCoreChart();
     buildDimTabs(selectedCompany);
     renderActiveDim();
@@ -1253,7 +1291,7 @@ function renderActiveDim() {
       const canvasId = `ch-${kpi.replace(/[^a-z0-9]/gi,'_')}`;
       const canvas = document.getElementById(canvasId);
       if(!canvas) return;
-      const qs = appData.quarters.slice(0, appData.quarters.indexOf(selectedQ) + 1);
+      const qs = appData.quarters.slice(appData.quarters.indexOf(selectedQFrom || appData.quarters[0]), appData.quarters.indexOf(selectedQ) + 1);
       const compVals = qs.map(q=>coData[q]??null);
       const peerAvg = qs.map(q=>{
         const pvs = selectedPeers.map(p=>appData.companies[p]?.[kpi]?.[q]).filter(v=>v!=null&&!isNaN(v));
@@ -1310,7 +1348,7 @@ function renderCoreChart() {
   document.getElementById('core-kpi-subtitle').textContent =
     `${currentRatings[selectedCompany]||'—'} · ${unit}`;
 
-  const qs = appData.quarters.slice(0, appData.quarters.indexOf(selectedQ) + 1);
+  const qs = appData.quarters.slice(appData.quarters.indexOf(selectedQFrom || appData.quarters[0]), appData.quarters.indexOf(selectedQ) + 1);
   const coData = appData.companies[selectedCompany]?.[kpi] || {};
   const compVals = qs.map(q => coData[q] ?? null);
 
