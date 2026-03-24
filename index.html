@@ -1274,11 +1274,13 @@ function getAlertsByDim(name) {
 let _lastRenderedDim = null;
 let _lastRenderedCompany = null;
 let _lastRenderedPeersKey = '';
+let _lastRenderedQFrom = null;
+let _lastRenderedQ = null;
 
 function renderActiveDim() {
   const dim = activeDim;
   const peersKey = selectedPeers.join(',');
-  const sameDimContext = (_lastRenderedDim === dim && _lastRenderedCompany === selectedCompany && _lastRenderedPeersKey === peersKey);
+  const sameDimContext = (_lastRenderedDim === dim && _lastRenderedCompany === selectedCompany && _lastRenderedPeersKey === peersKey && _lastRenderedQFrom === selectedQFrom && _lastRenderedQ === selectedQ);
 
   // If only the industry-avg toggle changed on the same dim, update datasets in-place
   if (sameDimContext && Object.keys(chartInstances).length > 0) {
@@ -1317,6 +1319,8 @@ function renderActiveDim() {
   _lastRenderedDim = dim;
   _lastRenderedCompany = selectedCompany;
   _lastRenderedPeersKey = peersKey;
+  _lastRenderedQFrom = selectedQFrom;
+  _lastRenderedQ = selectedQ;
 
   const area = document.getElementById('dim-content-area');
   const kpiList = appData.dimensions[dim];
